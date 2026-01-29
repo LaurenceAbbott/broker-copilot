@@ -127,7 +127,7 @@ async function callWorker(path, payload) {
     body: JSON.stringify(payload)
   });
 
-   const text = await res.text();
+     const text = await res.text();
   if (!res.ok) {
         throw new Error(`Worker error ${res.status}: ${text}`);
   }
@@ -149,7 +149,8 @@ async function callWorker(path, payload) {
  *   confidence?: "Low"|"Medium"|"High"
  * }
  */
-return callWorker("/broker-copilot/analyze", payload);
+async function analyze(payload) {
+  return callWorker("/broker-copilot/analyze", payload);
 }
 
 /**
