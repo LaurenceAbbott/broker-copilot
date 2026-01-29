@@ -25,7 +25,6 @@ const IDS = {
   customerName: "custName",
 
   // Concerns
-  concernChips: "concernChips",     // optional (your existing chips)
   concernsFreeText: "concernsFreeText",
 
   // Clarifiers UI
@@ -35,7 +34,6 @@ const IDS = {
   // Recommendation UI containers (your existing UI likely has these)
   groups: "groups",                 // where recommendation cards render
   followupList: "followupList",     // optional (we can reuse to show clarifier questions)
-  tagChips: "tagChips",             // optional
 
   // Quote pack UI (your existing buttons)
   exportBtn: "exportBtn",           // if you have it; otherwise we wire by text later
@@ -67,28 +65,7 @@ let lastRecommendations = [];
 let lastClarifierAnswers = {};
 let isLoading = false;
 let selectedProducts = new Map(); // key -> product object returned by agent
-let suggestedTags = [];
-let selectedTags = new Set();
-
-const COMMON_CONCERNS = [
-  "Tools left in van overnight",
-  "Working at height",
-  "Public on site",
-  "Heat/hot work",
-  "Subcontractors used",
-  "Contract requires £5m+ PL",
-  "High-value stock on premises",
-  "Lone working",
-  "Manual handling",
-  "Customers’ property on site"
-];
-
 /* ------------------ Concerns collection ------------------ */
-function getSelectedConcernChips() {
-  const wrap = $(IDS.concernChips);
-  if (!wrap) return [];
-  return [...wrap.querySelectorAll(".chip.on")].map(x => x.textContent.trim());
-}
 
 function getLineLabel() {
   const select = $(IDS.lineSelect);
@@ -113,10 +90,8 @@ function buildPayload(extra = {}) {
     // customer statements
     businessDescription: activity,
     concerns: {
-      selected: getSelectedConcernChips(),               // optional “quick toggles”
       freeText: (safeVal(IDS.concernsFreeText) || "").trim()
     },
-    tags: [...selectedTags],
      
     // passthrough
     ...extra
@@ -233,72 +208,6 @@ function clearError() {
 }
 
 /* ------------------ Clarifiers UI ------------------ */
-function createChip(label, { selected = false, onToggle } = {}) {
-  const chip = document.createElement("button");
-  chip.type = "button";
-  chip.className = `chip${selected ? " on" : ""}`;
-  chip.textContent = label;
-  chip.addEventListener("click", () => {
-    chip.classList.toggle("on");
-    if (onToggle) onToggle(chip.classList.contains("on"));
-  });
-  return chip;
-}
-
-function renderConcernChips(items = []) {
-  const wrap = $(IDS.concernChips);
-  if (!wrap) return;
-  wrap.innerHTML = "";
-
-  if (!items.length) {
-    wrap.innerHTML = `<div class="small">No common concerns configured.</div>`;
-    return;
-  }
-
-  items.forEach(label => {
-    wrap.appendChild(createChip(label));
-  });
-}
-
-function renderTagChips(items = []) {
-  const wrap = $(IDS.tagChips);
-  if (!wrap) return;
-  wrap.innerHTML = "";
-  selectedTags = new Set(items);
-
-  if (!items.length) {
-    wrap.innerHTML = `<div class="small">No suggested tags yet.</div>`;
-    return;
-  }
-
-  items.forEach(label => {
-    wrap.appendChild(createChip(label, {
-      selected: true,
-      onToggle: (isOn) => {
-        if (isOn) {
-          selectedTags.add(label);
-        } else {
-          selectedTags.delete(label);
-        }
-      }
-    }));
-  });
-}
-
-function updateSuggestedTags(analysis) {
-  const tags = [];
-  if (analysis?.extracted?.tags && Array.isArray(analysis.extracted.tags)) {
-    tags.push(...analysis.extracted.tags);
-  }
-  if (analysis?.extracted?.riskSignals && Array.isArray(analysis.extracted.riskSignals)) {
-    tags.push(...analysis.extracted.riskSignals);
-  }
-
-  const uniqueTags = [...new Set(tags.map(tag => String(tag).trim()).filter(Boolean))];
-  suggestedTags = uniqueTags;
-  renderTagChips(uniqueTags);
-}
-
 function showClarifiers(clarifiers = []) {
   const panel = $(IDS.clarifiersPanel);
   const list = $(IDS.clarifiersList);
@@ -336,7 +245,7 @@ function showClarifiers(clarifiers = []) {
   }).join("");
 
   if (continueBtn) continueBtn.style.display = "inline-flex";
-  toast("Answer clarifiers, then Continue");
+  toast("Answer follow-up questions, then view recommendations");
 }
 
 /* ------------------ Recommendations UI ------------------ */
@@ -516,7 +425,6 @@ async function runAgentFlow() {
     // Phase 1: analyze for clarifiers
     const analysis = await analyze(payload);
     lastAnalysis = analysis;
-updateSuggestedTags(analysis);
      
     if (analysis.needsClarifiers && Array.isArray(analysis.clarifiers) && analysis.clarifiers.length) {
       showClarifiers(analysis.clarifiers);
@@ -632,5 +540,3 @@ function wireButtons() {
 /* ------------------ Init ------------------ */
 wireButtons();
 updatePackUI();
-renderConcernChips(COMMON_CONCERNS);
-renderTagChips(suggestedTags);
