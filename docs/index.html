@@ -14,10 +14,7 @@
     <header class="top">
       <div class="brand">
         <h1>Broker Copilot – Product Recommendations</h1>
-        <div class="subtitle">
-          Quick capture → clarify → recommend products → build a quote pack.
-          <span class="tiny">Hybrid engine (rules + AI-style classification stub). Ready to swap in a real endpoint later.</span>
-        </div>
+        <div class="subtitle"></div>
       </div>
 
       <div class="mode">
@@ -29,10 +26,6 @@
           </select>
         </div>
 
-        <div class="pill" id="confidencePill">
-          <span class="dot warn"></span>
-          <span>Confidence: Medium</span>
-        </div>
       </div>
     </header>
 
@@ -41,9 +34,7 @@
       <article class="card">
         <div class="cardHeader">
           <h2>Quick capture</h2>
-          <div class="kpiRow">
-            <span class="badge" id="recapBadge"><span class="dot warn"></span><span>Capture incomplete</span></span>
-          </div>
+                    <div class="kpiRow"></div>
         </div>
 
         <div class="cardBody">
@@ -67,9 +58,6 @@
           <div class="mt12">
             <label>What does the business do? (free text)</label>
             <textarea id="activityText" placeholder="e.g., 'I’m a self-employed gardener. Sometimes I do patios and fencing. I keep tools in a van overnight.'"></textarea>
-            <div class="small mt8">
-              Tip: paste what the customer says verbatim. The tool will suggest tags + follow-up questions.
-            </div>
           </div>
 
           <div class="divider"></div>
@@ -138,14 +126,6 @@
             </div>
           </div>
 
-          <div class="divider"></div>
-
-          <div class="hr"></div>
-          <div class="small">
-            <b>Next step:</b> swap the “AI stub” with an API call, but keep the same UI + scoring.
-            <br />
-            <span class="tiny">Feedback is stored locally (localStorage) in this prototype.</span>
-          </div>
         </div>
       </article>
 
@@ -154,10 +134,7 @@
         <article class="card">
           <div class="cardHeader">
             <h2>Recommendations</h2>
-            <div class="kpiRow">
-              <span class="badge" id="missingBadge"><span class="dot warn"></span><span>Clarifiers: 0</span></span>
-              <span class="badge" id="summaryBadge"><span class="dot warn"></span><span>0 products</span></span>
-            </div>
+            <div class="kpiRow"></div>
           </div>
 
           <div class="cardBody">
@@ -172,9 +149,7 @@
           </div>
 
           <div class="cardBody">
-            <div class="small" id="packIntro">
-              Add suggested products to build a pack. Then “Start quote” (stub) or export to JSON.
-            </div>
+            <div class="small" id="packIntro"></div>
 
             <div class="divider"></div>
 
@@ -184,13 +159,7 @@
               <button id="startPackBtn">Start quotes (stub)</button>
               <button class="secondary" id="exportBtn">Export pack JSON</button>
             </div>
-
-            <div class="divider"></div>
-
-            <div class="small">
-              <b>Agent outcomes</b>
-              <div class="tiny">Tap feedback on each product to teach the tool over time.</div>
-            </div>
+        
           </div>
         </article>
       </div>
