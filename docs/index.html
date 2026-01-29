@@ -120,35 +120,25 @@
           </div>
 
           <div class="mt12">
-            <label>Common concerns (click to toggle)</label>
-            <div class="chips" id="concernChips"></div>
-          </div>
-
-          <div class="mt12">
             <label class="label">Concerns / worries (free text)</label>
             <textarea id="concernsFreeText" class="textarea" rows="3"
               placeholder="e.g. Tools left in van overnight, public on site, contract requires £5m PL, worried about poor workmanship claims..."></textarea>
+          </div>
 
-            <div id="clarifiersPanel" class="panel" style="display:none; margin-top:12px;">
-              <div class="panelTitle">Clarifiers needed</div>
-              <div id="clarifiersList" class="small" style="margin-top:8px;"></div>
-                            <div class="btnRow" style="margin-top:12px;">
-                <button class="secondary" id="continueBtn" style="display:none;">Continue</button>
-              </div>
+          <div class="btnRow">
+                        <button id="runBtn">Show follow up questions</button>
+            <button class="secondary" id="resetBtn">Reset</button>
+          </div>
+
+          <div id="clarifiersPanel" class="panel" style="display:none; margin-top:12px;">
+            <div class="panelTitle">Follow up questions</div>
+            <div id="clarifiersList" class="small" style="margin-top:8px;"></div>
+            <div class="btnRow" style="margin-top:12px;">
+              <button class="secondary" id="continueBtn" style="display:none;">View recommendations</button>
             </div>
           </div>
 
           <div class="divider"></div>
-
-          <div>
-            <label>Suggested tags (auto) – click to toggle</label>
-            <div class="chips" id="tagChips"></div>
-          </div>
-
-          <div class="btnRow">
-            <button id="runBtn">Generate recommendations</button>
-            <button class="secondary" id="resetBtn">Reset</button>
-          </div>
 
           <div class="hr"></div>
           <div class="small">
@@ -171,14 +161,6 @@
           </div>
 
           <div class="cardBody">
-            <div class="sectionTitle">
-              <h3>Follow-up questions</h3>
-              <span class="tiny" id="followupHint">Generated from activity + tags</span>
-            </div>
-
-            <ul class="qList" id="followupList"></ul>
-
-            <div class="divider"></div>
             <div id="groups"></div>
           </div>
         </article>
