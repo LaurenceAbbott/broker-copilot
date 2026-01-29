@@ -170,6 +170,34 @@ input::placeholder, textarea::placeholder{color:rgba(170,182,223,.65);}
   white-space:nowrap;
 }
 
+.confidenceBadge{
+  padding:6px 10px;
+}
+
+.confidencePie{
+  --size:34px;
+  --track: rgba(38,50,87,.6);
+  width:var(--size);
+  height:var(--size);
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:
+    conic-gradient(var(--good) calc(var(--confidence, 0) * 1%), var(--track) 0);
+  box-shadow: inset 0 0 0 3px rgba(11,15,26,.9);
+  position:relative;
+  font-weight:700;
+  font-size:10px;
+  color:var(--text);
+}
+
+.confidenceValue{
+  position:relative;
+  z-index:1;
+  line-height:1;
+}
+
 .dot{width:9px; height:9px; border-radius:999px; display:inline-block;}
 .dot.good{background:var(--good);}
 .dot.warn{background:var(--warn);}
