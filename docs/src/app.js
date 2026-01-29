@@ -65,6 +65,10 @@ let lastRecommendations = [];
 let lastClarifierAnswers = {};
 let isLoading = false;
 let selectedProducts = new Map(); // key -> product object returned by agent
+let autoAnalyzeTimer = null;
+let autoAnalyzeAborter = null;
+let lastAutoAnalyzeKey = "";
+let lastAnalysisKey = "";
 /* ------------------ Concerns collection ------------------ */
 
 function getLineLabel() {
@@ -98,6 +102,12 @@ function buildPayload(extra = {}) {
   };
 }
 
+function payloadKey(payload) {
+  const activity = payload?.businessDescription || "";
+  const concerns = payload?.concerns?.freeText || "";
+  return `${activity}||${concerns}`.trim();
+}
+
 function collectClarifierAnswers() {
   const panel = $(IDS.clarifiersPanel);
   if (!panel || panel.style.display === "none") return {};
@@ -111,11 +121,12 @@ function collectClarifierAnswers() {
 
 /* ------------------ Worker calls ------------------ */
 
-async function callWorker(path, payload) {
+async function callWorker(path, payload, options = {}) {
   const res = await fetch(`${WORKER_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+    ...options
   });
 
      const text = await res.text();
@@ -140,8 +151,8 @@ async function callWorker(path, payload) {
  *   confidence?: "Low"|"Medium"|"High"
  * }
  */
-async function analyze(payload) {
-  return callWorker("/broker-copilot/analyze", payload);
+async function analyze(payload, options) {
+  return callWorker("/broker-copilot/analyze", payload, options);
 }
 
 /**
@@ -211,13 +222,11 @@ function clearError() {
 function showClarifiers(clarifiers = []) {
   const panel = $(IDS.clarifiersPanel);
   const list = $(IDS.clarifiersList);
-   const continueBtn = $(IDS.continueBtn);
   if (!panel || !list) return;
 
   if (!clarifiers.length) {
     panel.style.display = "none";
     list.innerHTML = "";
-     if (continueBtn) continueBtn.style.display = "none";
     return;
   }
 
@@ -243,9 +252,7 @@ function showClarifiers(clarifiers = []) {
       </div>
     `;
   }).join("");
-
-  if (continueBtn) continueBtn.style.display = "inline-flex";
-  toast("Answer follow-up questions, then view recommendations");
+panel.style.display = "block";
 }
 
 /* ------------------ Recommendations UI ------------------ */
@@ -298,13 +305,8 @@ function renderRecommendations(items = []) {
 function renderProductCard(p) {
   const key = p.key || p.name || cryptoKey(p);
   const isOn = selectedProducts.has(key);
-     const confidenceValue = typeof p.confidence === "number"
-    ? Math.round(p.confidence)
-    : (p.confidence || p.relevance || "Med");
-
-  const confidenceLabel = typeof confidenceValue === "number"
-    ? `Confidence ${confidenceValue}`
-    : `Confidence ${confidenceValue}`;
+     const confidenceValue = getConfidenceValue(p);
+  const confidenceLabel = `${confidenceValue}%`;
 
   // store product JSON in dataset for pack export
   const json = escapeAttr(JSON.stringify({
@@ -327,9 +329,10 @@ function renderProductCard(p) {
           <div class="why"><b>${escapeHtml(p.whyRelevant || "—")}</b></div>
           <div class="small">${escapeHtml(p.whatItCovers || "")}</div>
         </div>
-        <span class="badge">
-          <span class="dot ${p.relevance === "High" ? "good" : "warn"}"></span>
-          ${escapeHtml(confidenceLabel)}
+        <span class="badge confidenceBadge" aria-label="Confidence ${escapeHtml(confidenceLabel)}">
+          <span class="confidencePie" style="--confidence:${confidenceValue}">
+            <span class="confidenceValue">${escapeHtml(confidenceLabel)}</span>
+          </span>
         </span>
       </div>
 
@@ -422,21 +425,23 @@ async function runAgentFlow() {
    lastPayload = payload;
 
   try {
-    // Phase 1: analyze for clarifiers
-    const analysis = await analyze(payload);
-    lastAnalysis = analysis;
-     
-    if (analysis.needsClarifiers && Array.isArray(analysis.clarifiers) && analysis.clarifiers.length) {
-      showClarifiers(analysis.clarifiers);
-      setLoading(false, "Clarifiers required before recommendations.");
-      return;
+    const key = payloadKey(payload);
+    const analysis = key === lastAnalysisKey && lastAnalysis
+      ? lastAnalysis
+      : await analyze(payload);
+    if (analysis) {
+      lastAnalysis = analysis;
+      lastAnalysisKey = key;
     }
 
-    // No clarifiers needed -> proceed directly
-    showClarifiers([]); // hide
+    if (analysis?.needsClarifiers && Array.isArray(analysis.clarifiers)) {
+      showClarifiers(analysis.clarifiers);
+    }
+
     const rec = await recommend({
       ...payload,
-      analysis
+      analysis,
+      clarifierAnswers: collectClarifierAnswers()
     });
 
     lastRecommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];
@@ -476,7 +481,6 @@ async function continueAgentFlow() {
 
     selectedProducts.clear();
     renderRecommendations(lastRecommendations);
-    showClarifiers([]);
     toast("Recommendations ready");
   } catch (e) {
     console.error(e);
@@ -512,6 +516,50 @@ function cryptoKey(obj) {
   }
 }
 
+function getConfidenceValue(p) {
+  if (typeof p.confidence === "number" && !Number.isNaN(p.confidence)) {
+    return Math.max(0, Math.min(100, Math.round(p.confidence)));
+  }
+
+  const relevance = (p.relevance || "").toLowerCase();
+  if (relevance === "high") return 85;
+  if (relevance === "low") return 45;
+  return 65;
+}
+
+function scheduleAutoAnalyze() {
+  const activity = safeVal(IDS.activityText).trim();
+  const concerns = safeVal(IDS.concernsFreeText).trim();
+  if (!activity && !concerns) return;
+
+  const key = `${activity}||${concerns}`;
+  if (key === lastAutoAnalyzeKey) return;
+
+  if (autoAnalyzeTimer) clearTimeout(autoAnalyzeTimer);
+  autoAnalyzeTimer = setTimeout(async () => {
+    if (isLoading) return;
+    lastAutoAnalyzeKey = key;
+    lastAnalysisKey = key;
+    const payload = buildPayload();
+    if (autoAnalyzeAborter) autoAnalyzeAborter.abort();
+    autoAnalyzeAborter = new AbortController();
+
+    try {
+      const analysis = await analyze(payload, { signal: autoAnalyzeAborter.signal });
+      lastAnalysis = analysis;
+      if (analysis?.needsClarifiers && Array.isArray(analysis.clarifiers)) {
+        showClarifiers(analysis.clarifiers);
+      } else {
+        showClarifiers([]);
+      }
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        console.warn("Auto-analyze failed", e);
+      }
+    }
+  }, 350);
+}
+
 /* ------------------ Wire buttons ------------------ */
 function wireButtons() {
   const run = $(IDS.runBtn);
@@ -535,6 +583,12 @@ function wireButtons() {
 
   const startBtn = $(IDS.startQuotesBtn);
   if (startBtn) startBtn.onclick = startQuotesStub;
+
+   
+  const concerns = $(IDS.concernsFreeText);
+  if (concerns) {
+    concerns.addEventListener("input", scheduleAutoAnalyze);
+  }
 }
 
 /* ------------------ Init ------------------ */
