@@ -27,13 +27,13 @@ const IDS = {
   // Concerns
   concernsFreeText: "concernsFreeText",
 
-  // Clarifiers UI
+     // Clarifiers UI (deprecated, follow-up questions removed)
   clarifiersPanel: "clarifiersPanel",
   clarifiersList: "clarifiersList",
 
   // Recommendation UI containers (your existing UI likely has these)
   groups: "groups",                 // where recommendation cards render
-  followupList: "followupList",     // optional (we can reuse to show clarifier questions)
+  followupList: "followupList",     // optional
 
   // Quote pack UI (your existing buttons)
   exportBtn: "exportBtn",           // if you have it; otherwise we wire by text later
@@ -59,16 +59,12 @@ function toast(msg) {
 }
 
 /* ------------------ State ------------------ */
-let lastAnalysis = null; // stores clarifiers/questions returned by agent
+let lastAnalysis = null;
 let lastPayload = null;
 let lastRecommendations = [];
 let lastClarifierAnswers = {};
 let isLoading = false;
 let selectedProducts = new Map(); // key -> product object returned by agent
-let autoAnalyzeTimer = null;
-let autoAnalyzeAborter = null;
-let lastAutoAnalyzeKey = "";
-let lastAnalysisKey = "";
 /* ------------------ Concerns collection ------------------ */
 
 function getLineLabel() {
@@ -102,23 +98,6 @@ function buildPayload(extra = {}) {
   };
 }
 
-function payloadKey(payload) {
-  const activity = payload?.businessDescription || "";
-  const concerns = payload?.concerns?.freeText || "";
-  return `${activity}||${concerns}`.trim();
-}
-
-function collectClarifierAnswers() {
-  const panel = $(IDS.clarifiersPanel);
-  if (!panel || panel.style.display === "none") return {};
-  const inputs = panel.querySelectorAll("[data-clarifier-id]");
-  const out = {};
-  inputs.forEach(inp => {
-    out[inp.dataset.clarifierId] = (inp.value || "").trim();
-  });
-  return out;
-}
-
 /* ------------------ Worker calls ------------------ */
 
 async function callWorker(path, payload, options = {}) {
@@ -140,19 +119,6 @@ async function callWorker(path, payload, options = {}) {
     throw new Error(`Worker returned invalid JSON: ${err.message}`);
   }
   
-}
-
-/**
- * Expected /analyze response:
- * {
- *   needsClarifiers: boolean,
- *   clarifiers: [{ id, question, type: "text"|"choice", choices?: string[] }],
- *   extracted: { tags?: string[], riskSignals?: string[] },
- *   confidence?: "Low"|"Medium"|"High"
- * }
- */
-async function analyze(payload, options) {
-  return callWorker("/broker-copilot/analyze", payload, options);
 }
 
 /**
@@ -229,8 +195,6 @@ function showClarifiers(clarifiers = []) {
     list.innerHTML = "";
     return;
   }
-
-  panel.style.display = "block";
 
   list.innerHTML = clarifiers.map(c => {
     if (c.type === "choice" && Array.isArray(c.choices)) {
@@ -419,30 +383,16 @@ async function runAgentFlow() {
   }
 
    clearError();
-  setLoading(true, "Analyzing details with the worker...");
+  setLoading(true, "Generating recommendations...");
 
   const payload = buildPayload();
    lastPayload = payload;
 
   try {
-    const key = payloadKey(payload);
-    const analysis = key === lastAnalysisKey && lastAnalysis
-      ? lastAnalysis
-      : await analyze(payload);
-    if (analysis) {
-      lastAnalysis = analysis;
-      lastAnalysisKey = key;
-    }
+    showClarifiers([]);
+    lastAnalysis = null;
 
-    if (analysis?.needsClarifiers && Array.isArray(analysis.clarifiers)) {
-      showClarifiers(analysis.clarifiers);
-    }
-
-    const rec = await recommend({
-      ...payload,
-      analysis,
-      clarifierAnswers: collectClarifierAnswers()
-    });
+    const rec = await recommend(payload);
 
     lastRecommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];
     lastClarifierAnswers = {};
@@ -460,25 +410,19 @@ async function runAgentFlow() {
 
 async function continueAgentFlow() {
   if (!lastPayload) {
-    toast("Run analysis first");
+    toast("Run recommendations first");
     return;
   }
 
   clearError();
-  setLoading(true, "Submitting clarifier answers...");
+  setLoading(true, "Generating recommendations...");
 
   try {
-    const clarifierAnswers = collectClarifierAnswers();
-    lastClarifierAnswers = clarifierAnswers;
-
-    const rec = await recommend({
-      ...lastPayload,
-      clarifierAnswers,
-      analysis: lastAnalysis
-    });
+    const rec = await recommend(lastPayload);
 
     lastRecommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];
-
+lastClarifierAnswers = {};
+     
     selectedProducts.clear();
     renderRecommendations(lastRecommendations);
     toast("Recommendations ready");
@@ -527,39 +471,6 @@ function getConfidenceValue(p) {
   return 65;
 }
 
-function scheduleAutoAnalyze() {
-  const activity = safeVal(IDS.activityText).trim();
-  const concerns = safeVal(IDS.concernsFreeText).trim();
-  if (!activity && !concerns) return;
-
-  const key = `${activity}||${concerns}`;
-  if (key === lastAutoAnalyzeKey) return;
-
-  if (autoAnalyzeTimer) clearTimeout(autoAnalyzeTimer);
-  autoAnalyzeTimer = setTimeout(async () => {
-    if (isLoading) return;
-    lastAutoAnalyzeKey = key;
-    lastAnalysisKey = key;
-    const payload = buildPayload();
-    if (autoAnalyzeAborter) autoAnalyzeAborter.abort();
-    autoAnalyzeAborter = new AbortController();
-
-    try {
-      const analysis = await analyze(payload, { signal: autoAnalyzeAborter.signal });
-      lastAnalysis = analysis;
-      if (analysis?.needsClarifiers && Array.isArray(analysis.clarifiers)) {
-        showClarifiers(analysis.clarifiers);
-      } else {
-        showClarifiers([]);
-      }
-    } catch (e) {
-      if (e.name !== "AbortError") {
-        console.warn("Auto-analyze failed", e);
-      }
-    }
-  }, 350);
-}
-
 /* ------------------ Wire buttons ------------------ */
 function wireButtons() {
   const run = $(IDS.runBtn);
@@ -568,7 +479,10 @@ function wireButtons() {
 
   if (run) run.onclick = runAgentFlow;
   if (reset) reset.onclick = () => location.reload();
-   if (cont) cont.onclick = continueAgentFlow;
+   if (cont) {
+    cont.onclick = continueAgentFlow;
+    cont.style.display = "none";
+  }
 
   // If your buttons don’t have IDs, we can wire by text (fallback)
   document.querySelectorAll("button").forEach(btn => {
@@ -585,10 +499,6 @@ function wireButtons() {
   if (startBtn) startBtn.onclick = startQuotesStub;
 
    
-  const concerns = $(IDS.concernsFreeText);
-  if (concerns) {
-    concerns.addEventListener("input", scheduleAutoAnalyze);
-  }
 }
 
 /* ------------------ Init ------------------ */
