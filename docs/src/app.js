@@ -4,22 +4,25 @@
    - Phase 2: /recommend -> recommendations with rationale
    ========================================================= */
 
-const AGENT_BASE_URL = ""; // e.g. "https://your-worker.yourdomain.workers.dev"
+const WORKER_BASE_URL = "https://broker-copilot-agent.laurence-ogi.workers.dev";
 
 // IDs expected in your HTML (from your existing UI)
 const IDS = {
   runBtn: "runBtn",
   resetBtn: "resetBtn",
+  continueBtn: "continueBtn",
   activityText: "activityText",
+  statusMessage: "statusMessage",
+  errorMessage: "errorMessage",
 
   // Optional capture fields (if present in your HTML)
   lineSelect: "lineSelect",
-  businessType: "businessType",
+  businessType: "bizType",
   turnover: "turnover",
   staff: "staff",
   premises: "premises",
   vehicles: "vehicles",
-  customerName: "customerName",
+  customerName: "custName",
 
   // Concerns
   concernChips: "concernChips",     // optional (your existing chips)
@@ -36,9 +39,10 @@ const IDS = {
 
   // Quote pack UI (your existing buttons)
   exportBtn: "exportBtn",           // if you have it; otherwise we wire by text later
-  startQuotesBtn: "startQuotesBtn", // if you have it; otherwise we wire by text later
+  startQuotesBtn: "startPackBtn",   // if you have it; otherwise we wire by text later
   packCount: "packCount",           // optional
-  packList: "packList"              // optional
+  packList: "packList",             // optional
+  packBadge: "packBadge"
 };
 
 const $ = (id) => document.getElementById(id);
@@ -58,6 +62,10 @@ function toast(msg) {
 
 /* ------------------ State ------------------ */
 let lastAnalysis = null; // stores clarifiers/questions returned by agent
+let lastPayload = null;
+let lastRecommendations = [];
+let lastClarifierAnswers = {};
+let isLoading = false;
 let selectedProducts = new Map(); // key -> product object returned by agent
 
 /* ------------------ Concerns collection ------------------ */
@@ -67,12 +75,19 @@ function getSelectedConcernChips() {
   return [...wrap.querySelectorAll(".chip.on")].map(x => x.textContent.trim());
 }
 
+function getLineLabel() {
+  const select = $(IDS.lineSelect);
+  if (!select) return "";
+  const opt = select.options[select.selectedIndex];
+  return opt ? opt.textContent.trim() : select.value;
+}
+
 function buildPayload(extra = {}) {
   const activity = safeVal(IDS.activityText).trim();
 
   return {
     // core
-    line: safeVal(IDS.lineSelect) || "Commercial (SME)",
+    line: getLineLabel() || safeVal(IDS.lineSelect) || "Commercial (SME)",
     customerName: safeVal(IDS.customerName) || "",
     businessType: safeVal(IDS.businessType) || "",
     turnoverBand: safeVal(IDS.turnover) || "",
@@ -86,9 +101,6 @@ function buildPayload(extra = {}) {
       selected: getSelectedConcernChips(),               // optional “quick toggles”
       freeText: (safeVal(IDS.concernsFreeText) || "").trim()
     },
-
-    // clarifier answers (if any)
-    clarifierAnswers: collectClarifierAnswers(),
 
     // passthrough
     ...extra
@@ -106,24 +118,26 @@ function collectClarifierAnswers() {
   return out;
 }
 
-/* ------------------ Agent calls ------------------ */
+/* ------------------ Worker calls ------------------ */
 
-async function agentPost(path, payload) {
-  if (!AGENT_BASE_URL) {
-    throw new Error("AGENT_BASE_URL is not set. Add your real agent endpoint URL.");
-  }
-
-  const res = await fetch(`${AGENT_BASE_URL}${path}`, {
+async function callWorker(path, payload) {
+  const res = await fetch(`${WORKER_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
 
+   const text = await res.text();
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Agent error ${res.status}: ${text}`);
+        throw new Error(`Worker error ${res.status}: ${text}`);
   }
-  return res.json();
+
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (err) {
+    throw new Error(`Worker returned invalid JSON: ${err.message}`);
+  }
+  
 }
 
 /**
@@ -135,8 +149,7 @@ async function agentPost(path, payload) {
  *   confidence?: "Low"|"Medium"|"High"
  * }
  */
-async function analyze(payload) {
-  return agentPost("/broker-copilot/analyze", payload);
+return callWorker("/broker-copilot/analyze", payload);
 }
 
 /**
@@ -159,7 +172,47 @@ async function analyze(payload) {
  * }
  */
 async function recommend(payload) {
-  return agentPost("/broker-copilot/recommend", payload);
+  return callWorker("/broker-copilot/recommend", payload);
+}
+
+/* ------------------ UI state ------------------ */
+
+function setLoading(nextState, message = "") {
+  isLoading = nextState;
+  const run = $(IDS.runBtn);
+  const cont = $(IDS.continueBtn);
+  const reset = $(IDS.resetBtn);
+
+  if (run) run.disabled = nextState;
+  if (cont) cont.disabled = nextState;
+  if (reset) reset.disabled = nextState;
+
+  if (run) {
+    run.dataset.originalText = run.dataset.originalText || run.textContent;
+    run.textContent = nextState ? "Working..." : run.dataset.originalText;
+  }
+
+  const status = $(IDS.statusMessage);
+  if (status) {
+    status.textContent = message || (nextState ? "Working on recommendations..." : "");
+  }
+}
+
+function showError(message) {
+  const err = $(IDS.errorMessage);
+  if (err) {
+    err.textContent = message;
+    err.style.display = "block";
+  }
+  if (!err) toast(message);
+}
+
+function clearError() {
+  const err = $(IDS.errorMessage);
+  if (err) {
+    err.textContent = "";
+    err.style.display = "none";
+  }
 }
 
 /* ------------------ Clarifiers UI ------------------ */
@@ -167,11 +220,13 @@ async function recommend(payload) {
 function showClarifiers(clarifiers = []) {
   const panel = $(IDS.clarifiersPanel);
   const list = $(IDS.clarifiersList);
+   const continueBtn = $(IDS.continueBtn);
   if (!panel || !list) return;
 
   if (!clarifiers.length) {
     panel.style.display = "none";
     list.innerHTML = "";
+     if (continueBtn) continueBtn.style.display = "none";
     return;
   }
 
@@ -198,7 +253,8 @@ function showClarifiers(clarifiers = []) {
     `;
   }).join("");
 
-  toast("Answer clarifiers, then Generate again");
+  if (continueBtn) continueBtn.style.display = "inline-flex";
+  toast("Answer clarifiers, then Continue");
 }
 
 /* ------------------ Recommendations UI ------------------ */
@@ -250,8 +306,14 @@ function renderRecommendations(items = []) {
 
 function renderProductCard(p) {
   const key = p.key || p.name || cryptoKey(p);
-  const conf = typeof p.confidence === "number" ? Math.round(p.confidence) : null;
   const isOn = selectedProducts.has(key);
+     const confidenceValue = typeof p.confidence === "number"
+    ? Math.round(p.confidence)
+    : (p.confidence || p.relevance || "Med");
+
+  const confidenceLabel = typeof confidenceValue === "number"
+    ? `Confidence ${confidenceValue}`
+    : `Confidence ${confidenceValue}`;
 
   // store product JSON in dataset for pack export
   const json = escapeAttr(JSON.stringify({
@@ -261,7 +323,9 @@ function renderProductCard(p) {
     whyRelevant: p.whyRelevant || "",
     whatItCovers: p.whatItCovers || "",
     typicalAsks: Array.isArray(p.typicalAsks) ? p.typicalAsks : [],
-    notes: p.notes || ""
+    assumptions: Array.isArray(p.assumptions) ? p.assumptions : [],
+    notes: p.notes || "",
+    confidence: p.confidence ?? null
   }));
 
   return `
@@ -269,22 +333,25 @@ function renderProductCard(p) {
       <div class="prodTop">
         <div>
           <div class="prodName">${escapeHtml(p.name || "Recommendation")}</div>
-          <div class="why">${escapeHtml(p.whatItCovers || "")}</div>
+          <div class="why"><b>${escapeHtml(p.whyRelevant || "—")}</b></div>
+          <div class="small">${escapeHtml(p.whatItCovers || "")}</div>
         </div>
         <span class="badge">
           <span class="dot ${p.relevance === "High" ? "good" : "warn"}"></span>
-          ${conf !== null ? conf : escapeHtml(p.relevance || "Med")}
+          ${escapeHtml(confidenceLabel)}
         </span>
-      </div>
-
-      <div class="small" style="margin-top:10px;">
-        <b>Why this is relevant</b><br/>
-        ${escapeHtml(p.whyRelevant || "—")}
       </div>
 
       ${Array.isArray(p.typicalAsks) && p.typicalAsks.length ? `
         <ul class="qList">
-          ${p.typicalAsks.slice(0, 4).map(q => `<li>${escapeHtml(q)}</li>`).join("")}
+          ${p.typicalAsks.map(q => `<li>${escapeHtml(q)}</li>`).join("")}
+        </ul>
+      ` : ""}
+
+      ${Array.isArray(p.assumptions) && p.assumptions.length ? `
+        <div class="small"><b>Assumptions</b></div>
+        <ul class="qList">
+          ${p.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("")}
         </ul>
       ` : ""}
 
@@ -305,6 +372,11 @@ function updatePackUI() {
   const countEl = $(IDS.packCount);
   if (countEl) countEl.textContent = `${selectedProducts.size}`;
 
+   const badge = $(IDS.packBadge);
+  if (badge) {
+    badge.innerHTML = `<span class="dot ${selectedProducts.size ? "good" : "warn"}"></span><span>${selectedProducts.size} selected</span>`;
+  }
+
   const listEl = $(IDS.packList);
   if (listEl) {
     listEl.innerHTML = [...selectedProducts.values()].map(p => `
@@ -316,15 +388,11 @@ function updatePackUI() {
 function exportPackJSON() {
   const payload = {
     createdAt: new Date().toISOString(),
-    line: safeVal(IDS.lineSelect) || "Commercial (SME)",
-    customerName: safeVal(IDS.customerName) || "",
-    businessDescription: safeVal(IDS.activityText) || "",
-    concerns: {
-      selected: getSelectedConcernChips(),
-      freeText: (safeVal(IDS.concernsFreeText) || "").trim()
-    },
-    clarifierAnswers: collectClarifierAnswers(),
-    selectedProducts: [...selectedProducts.values()]
+    originalPayload: lastPayload,
+    analysis: lastAnalysis,
+    clarifierAnswers: lastClarifierAnswers,
+    recommendations: lastRecommendations,
+    selectedRecommendations: [...selectedProducts.values()]
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -356,7 +424,11 @@ async function runAgentFlow() {
     return;
   }
 
+   clearError();
+  setLoading(true, "Analyzing details with the worker...");
+
   const payload = buildPayload();
+   lastPayload = payload;
 
   try {
     // Phase 1: analyze for clarifiers
@@ -365,21 +437,61 @@ async function runAgentFlow() {
 
     if (analysis.needsClarifiers && Array.isArray(analysis.clarifiers) && analysis.clarifiers.length) {
       showClarifiers(analysis.clarifiers);
-      // Do NOT recommend yet until clarifiers answered
+      setLoading(false, "Clarifiers required before recommendations.");
       return;
     }
 
     // No clarifiers needed -> proceed directly
     showClarifiers([]); // hide
-    const rec = await recommend(payload);
+    const rec = await recommend({
+      ...payload,
+      analysis
+    });
+
+    lastRecommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];
+    lastClarifierAnswers = {};
 
     selectedProducts.clear();
-    renderRecommendations(Array.isArray(rec.recommendations) ? rec.recommendations : []);
+    renderRecommendations(lastRecommendations);
     toast("Recommendations ready");
   } catch (e) {
     console.error(e);
-    toast(e.message || "Agent error");
-    // Keep UI stable even if agent fails
+    showError(e.message || "Worker error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function continueAgentFlow() {
+  if (!lastPayload) {
+    toast("Run analysis first");
+    return;
+  }
+
+  clearError();
+  setLoading(true, "Submitting clarifier answers...");
+
+  try {
+    const clarifierAnswers = collectClarifierAnswers();
+    lastClarifierAnswers = clarifierAnswers;
+
+    const rec = await recommend({
+      ...lastPayload,
+      clarifierAnswers,
+      analysis: lastAnalysis
+    });
+
+    lastRecommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];
+
+    selectedProducts.clear();
+    renderRecommendations(lastRecommendations);
+    showClarifiers([]);
+    toast("Recommendations ready");
+  } catch (e) {
+    console.error(e);
+    showError(e.message || "Worker error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -413,9 +525,11 @@ function cryptoKey(obj) {
 function wireButtons() {
   const run = $(IDS.runBtn);
   const reset = $(IDS.resetBtn);
+   const cont = $(IDS.continueBtn);
 
   if (run) run.onclick = runAgentFlow;
   if (reset) reset.onclick = () => location.reload();
+   if (cont) cont.onclick = continueAgentFlow;
 
   // If your buttons don’t have IDs, we can wire by text (fallback)
   document.querySelectorAll("button").forEach(btn => {
