@@ -114,7 +114,10 @@
           </div>
 
           <div class="btnRow">
-                        <button id="runBtn">Generate recommendations</button>
+                        <button id="runBtn" class="loadingBtn">
+              <span class="btnLabel">Generate recommendations</span>
+              <span class="spinner" aria-hidden="true"></span>
+            </button>
             <button class="secondary" id="resetBtn">Reset</button>
           </div>
 
@@ -127,7 +130,7 @@
       </article>
 
       <!-- RIGHT: RESULTS + PACK -->
-      <div class="rightGrid">
+      <div class="rightGrid single">
         <article class="card">
           <div class="cardHeader">
             <h2>Recommendations</h2>
@@ -138,29 +141,16 @@
             <div id="groups"></div>
           </div>
         </article>
-
-        <article class="card">
-          <div class="cardHeader">
-            <h2>Quote pack</h2>
-            <span class="badge" id="packBadge"><span class="dot warn"></span><span>0 selected</span></span>
-          </div>
-
-          <div class="cardBody">
-            <div class="small" id="packIntro"></div>
-
-            <div class="divider"></div>
-
-            <div class="packList" id="packList"></div>
-
-            <div class="btnRow">
-              <button id="startPackBtn">Start quotes (stub)</button>
-              <button class="secondary" id="exportBtn">Export pack JSON</button>
-            </div>
-        
-          </div>
-        </article>
       </div>
     </section>
+  </div>
+
+  <div class="quoteDock" id="quoteDock">
+    <div class="quoteDock__summary">
+      <span class="badge" id="packBadge"><span class="dot warn"></span><span>0 selected</span></span>
+      <div class="quoteDock__list" id="packList"></div>
+    </div>
+    <button id="startPackBtn">Start quote</button>
   </div>
 
   <div class="toast" id="toast"></div>
