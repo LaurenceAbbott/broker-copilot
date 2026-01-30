@@ -36,7 +36,6 @@ const IDS = {
   followupList: "followupList",     // optional
 
   // Quote pack UI (your existing buttons)
-  exportBtn: "exportBtn",           // if you have it; otherwise we wire by text later
   startQuotesBtn: "startPackBtn",   // if you have it; otherwise we wire by text later
   packCount: "packCount",           // optional
   packList: "packList",             // optional
@@ -157,8 +156,15 @@ function setLoading(nextState, message = "") {
   if (reset) reset.disabled = nextState;
 
   if (run) {
-    run.dataset.originalText = run.dataset.originalText || run.textContent;
-    run.textContent = nextState ? "Working..." : run.dataset.originalText;
+    const label = run.querySelector(".btnLabel");
+    if (label) {
+      run.dataset.originalText = run.dataset.originalText || label.textContent;
+      label.textContent = nextState ? "Generating" : run.dataset.originalText;
+    } else {
+      run.dataset.originalText = run.dataset.originalText || run.textContent;
+      run.textContent = nextState ? "Generating" : run.dataset.originalText;
+    }
+    run.classList.toggle("is-loading", nextState);
   }
 
   const status = $(IDS.statusMessage);
@@ -251,7 +257,7 @@ function renderRecommendations(items = []) {
 
       if (selectedProducts.has(key)) {
         selectedProducts.delete(key);
-        btn.textContent = "Add to quote pack";
+                btn.textContent = "Add to quote";
         btn.classList.remove("on");
       } else {
         selectedProducts.set(key, obj);
@@ -317,7 +323,7 @@ function renderProductCard(p) {
 
       <div style="margin-top:12px; display:flex; gap:10px;">
         <button class="btn ${isOn ? "on" : ""}" data-select-product="${escapeAttr(key)}" data-product-json="${json}">
-          ${isOn ? "Added" : "Add to quote pack"}
+          ${isOn ? "Added" : "Add to quote"}
         </button>
       </div>
     </div>
@@ -337,31 +343,15 @@ function updatePackUI() {
 
   const listEl = $(IDS.packList);
   if (listEl) {
+     if (!selectedProducts.size) {
+      listEl.innerHTML = `<span class="muted">No selections yet</span>`;
+      return;
+    }
+
     listEl.innerHTML = [...selectedProducts.values()].map(p => `
-      <div class="small">• <b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.relevance || "")}</div>
+      <span class="quoteChip">${escapeHtml(p.name)}</span>
     `).join("");
   }
-}
-
-function exportPackJSON() {
-  const payload = {
-    createdAt: new Date().toISOString(),
-    originalPayload: lastPayload,
-    analysis: lastAnalysis,
-    clarifierAnswers: lastClarifierAnswers,
-    recommendations: lastRecommendations,
-    selectedRecommendations: [...selectedProducts.values()]
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `quote-pack-${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 function startQuotesStub() {
@@ -370,7 +360,7 @@ function startQuotesStub() {
     return;
   }
   // Stub: in real integration, this is where you’d deep-link into your quote journeys / PAS
-  alert(`Start quotes (stub)\n\nSelected:\n- ${[...selectedProducts.values()].map(p => p.name).join("\n- ")}`);
+alert(`Start quote (stub)\n\nSelected:\n- ${[...selectedProducts.values()].map(p => p.name).join("\n- ")}`);
 }
 
 /* ------------------ Main button flow ------------------ */
@@ -487,18 +477,12 @@ function wireButtons() {
   // If your buttons don’t have IDs, we can wire by text (fallback)
   document.querySelectorAll("button").forEach(btn => {
     const t = (btn.textContent || "").trim().toLowerCase();
-    if (t.includes("export") && t.includes("json")) btn.onclick = exportPackJSON;
     if (t.includes("start") && t.includes("quote")) btn.onclick = startQuotesStub;
   });
 
   // If you *do* add IDs later, these take priority:
-  const exportBtn = $(IDS.exportBtn);
-  if (exportBtn) exportBtn.onclick = exportPackJSON;
-
   const startBtn = $(IDS.startQuotesBtn);
-  if (startBtn) startBtn.onclick = startQuotesStub;
-
-   
+  if (startBtn) startBtn.onclick = startQuotesStub;  
 }
 
 /* ------------------ Init ------------------ */
